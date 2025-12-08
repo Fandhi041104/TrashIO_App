@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "2199232120",
+    "firebase_url": "https://trashio-a5334-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "trashio-a5334",
+    "storage_bucket": "trashio-a5334.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:2199232120:android:564f1cd0f6a7b51b6b578d",
+        "android_client_info": {
+          "package_name": "com.example.aplikasi_iot"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDOmkRI8EwkhqsloWd1sfKAO2IlgKqvQIo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:2199232120:android:19d1388fb085e0746b578d",
+        "android_client_info": {
+          "package_name": "com.trashio"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDOmkRI8EwkhqsloWd1sfKAO2IlgKqvQIo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
