@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
 
+import 'about_screen.dart';
+
 class LogHistoryScreen extends StatefulWidget {
-  const LogHistoryScreen({super.key});
+  final bool isDarkMode;
+  
+  const LogHistoryScreen({super.key, this.isDarkMode = true});
 
   @override
   State<LogHistoryScreen> createState() => _LogHistoryScreenState();
@@ -13,11 +17,22 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
   final DatabaseReference _logsRef = FirebaseDatabase.instance.ref('trashbin_logs');
   final DatabaseReference _trashRef = FirebaseDatabase.instance.ref('trashbin');
   
-  List<LogEntry> allLogs = [];
-  List<DailySummary> dailySummaries = [];
+  List<DailySummary> allSummaries = [];
   bool isLoading = true;
-  String selectedFilter = 'Harian';
+  int currentPage = 0;
+  final int itemsPerPage = 10;
+  DateTime? selectedDate;
+  String filterMode = 'all'; // 'all', 'day', 'month', 'year'
+  int? selectedMonth;
+  int? selectedYear;
   
+  Color get _bgColor => widget.isDarkMode ? const Color(0xFF0D0D0D) : const Color(0xFFF5F5F5);
+  Color get _cardBg => widget.isDarkMode ? const Color(0xFF121212) : Colors.white;
+  Color get _headerBg => widget.isDarkMode ? const Color(0xFF0F0F0F) : Colors.white;
+  Color get _textPrimary => widget.isDarkMode ? Colors.white : const Color(0xFF1A1A1A);
+  Color get _textSecondary => widget.isDarkMode ? Colors.white70 : const Color(0xFF6B7280);
+  Color get _dividerColor => widget.isDarkMode ? Colors.white10 : const Color(0xFFE5E7EB);
+
   @override
   void initState() {
     super.initState();
@@ -26,13 +41,10 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
 
   String _formatDate(DateTime date, {bool isToday = false}) {
     if (isToday) return 'Hari Ini';
-    
     const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    
     final dayName = days[date.weekday % 7];
     final monthName = months[date.month - 1];
-    
     return '$dayName, ${date.day} $monthName ${date.year}';
   }
 
@@ -70,8 +82,7 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
       }
       
       setState(() {
-        allLogs = logs;
-        dailySummaries = _generateDailySummaries(logs, currentData);
+        allSummaries = _generateDailySummaries(logs, currentData);
         isLoading = false;
       });
     } catch (e) {
@@ -119,35 +130,62 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
   }
 
   List<DailySummary> get filteredSummaries {
-    final now = DateTime.now();
-    switch (selectedFilter) {
-      case 'Harian':
-        return dailySummaries.where((s) => s.date.isAfter(now.subtract(const Duration(days: 7)))).toList();
-      case 'Mingguan':
-        return dailySummaries.where((s) => s.date.isAfter(now.subtract(const Duration(days: 30)))).toList();
-      case 'Bulanan':
-        return dailySummaries.where((s) => s.date.isAfter(now.subtract(const Duration(days: 90)))).toList();
-      default:
-        return dailySummaries;
+    if (filterMode == 'day' && selectedDate != null) {
+      return allSummaries.where((s) => 
+        DateFormat('yyyy-MM-dd').format(s.date) == DateFormat('yyyy-MM-dd').format(selectedDate!)
+      ).toList();
+    } else if (filterMode == 'month' && selectedMonth != null && selectedYear != null) {
+      return allSummaries.where((s) => 
+        s.date.month == selectedMonth && s.date.year == selectedYear
+      ).toList();
+    } else if (filterMode == 'year' && selectedYear != null) {
+      return allSummaries.where((s) => s.date.year == selectedYear).toList();
     }
+    return allSummaries;
   }
+
+  String get filterText {
+    if (filterMode == 'day' && selectedDate != null) {
+      return _formatDate(selectedDate!);
+    } else if (filterMode == 'month' && selectedMonth != null && selectedYear != null) {
+      const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 
+                      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+      return '${months[selectedMonth! - 1]} $selectedYear';
+    } else if (filterMode == 'year' && selectedYear != null) {
+      return 'Tahun $selectedYear';
+    }
+    return '${filteredSummaries.length} hari tercatat';
+  }
+
+  List<DailySummary> get paginatedSummaries {
+    final filtered = filteredSummaries;
+    final start = currentPage * itemsPerPage;
+    final end = (start + itemsPerPage).clamp(0, filtered.length);
+    return filtered.sublist(start, end);
+  }
+
+  int get totalPages => (filteredSummaries.length / itemsPerPage).ceil();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0D),
+      backgroundColor: _bgColor,
       drawer: _buildSidebar(),
       body: SafeArea(
         child: Column(
           children: [
             _buildHeader(),
-            _buildFilterTabs(),
             Expanded(
               child: isLoading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFF16A34A)))
                 : filteredSummaries.isEmpty
                   ? _buildEmptyState()
-                  : _buildSummaryList(),
+                  : Column(
+                      children: [
+                        Expanded(child: _buildSummaryList()),
+                        if (totalPages > 1) _buildPagination(),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -157,7 +195,7 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
 
   Widget _buildSidebar() {
     return Drawer(
-      backgroundColor: const Color(0xFF0A0A0A),
+      backgroundColor: widget.isDarkMode ? const Color(0xFF0A0A0A) : Colors.white,
       child: Column(
         children: [
           Container(
@@ -169,18 +207,18 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
                 end: Alignment.bottomRight,
                 colors: [
                   const Color(0xFF16A34A).withOpacity(0.2),
-                  const Color(0xFF0A0A0A),
+                  widget.isDarkMode ? const Color(0xFF0A0A0A) : Colors.white,
                 ],
               ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Icon(Icons.delete_outline, size: 48, color: Color(0xFF16A34A)),
-                SizedBox(height: 16),
-                Text('SMART TRASH', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
-                SizedBox(height: 4),
-                Text('Monitoring System', style: TextStyle(color: Colors.white60, fontSize: 14)),
+              children: [
+                const Icon(Icons.delete_outline, size: 48, color: Color(0xFF16A34A)),
+                const SizedBox(height: 16),
+                Text('SMART TRASH', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1.2, color: _textPrimary)),
+                const SizedBox(height: 4),
+                Text('Monitoring System', style: TextStyle(color: _textSecondary, fontSize: 14)),
               ],
             ),
           ),
@@ -199,7 +237,18 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
                 ),
                 _modernMenuTile(Icons.info_outline_rounded, 'Tentang Device', false, () {
                   Navigator.pop(context);
-                  _showAboutDialog();
+                  Navigator.push(context, PageRouteBuilder(
+                    pageBuilder: (ctx, anim, secAnim) => AboutScreen(isDarkMode: widget.isDarkMode),
+                    transitionDuration: const Duration(milliseconds: 350),
+                    transitionsBuilder: (ctx, anim, secAnim, child) {
+                      return SlideTransition(
+                        position: Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
+                            .chain(CurveTween(curve: Curves.easeInOutCubic))
+                            .animate(anim),
+                        child: child,
+                      );
+                    },
+                  ));
                 }),
               ],
             ),
@@ -220,9 +269,9 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
         border: Border.all(color: isActive ? const Color(0xFF16A34A).withOpacity(0.3) : Colors.transparent),
       ),
       child: ListTile(
-        leading: Icon(icon, color: isActive ? const Color(0xFF16A34A) : Colors.white60, size: 22),
+        leading: Icon(icon, color: isActive ? const Color(0xFF16A34A) : _textSecondary, size: 22),
         title: Text(title, style: TextStyle(
-          color: isActive ? const Color(0xFF16A34A) : Colors.white,
+          color: isActive ? const Color(0xFF16A34A) : _textPrimary,
           fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
           fontSize: 14,
         )),
@@ -232,73 +281,72 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
     );
   }
 
-  void _showAboutDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF121212),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Smart Trash Monitor'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text('Version: 1.0', style: TextStyle(fontSize: 14)),
-            SizedBox(height: 8),
-            Text('Monitoring tempat sampah cerdas', style: TextStyle(fontSize: 13)),
-            SizedBox(height: 16),
-            Text('Device ID: TRASH-001', style: TextStyle(color: Colors.white70, fontSize: 12)),
-            Text('Location: Main Building', style: TextStyle(color: Colors.white70, fontSize: 12)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF16A34A))),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0F0F0F),
-        border: Border(bottom: BorderSide(color: Color(0xFF1A1A1A))),
+      decoration: BoxDecoration(
+        color: _headerBg,
+        border: Border(bottom: BorderSide(color: _dividerColor)),
+        boxShadow: widget.isDarkMode ? [] : [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2)),
+        ],
       ),
       child: Row(
         children: [
           Builder(builder: (ctx) {
             return Container(
               decoration: BoxDecoration(
-                color: const Color(0xFF1A1A1A),
+                color: widget.isDarkMode ? const Color(0xFF1A1A1A) : const Color(0xFFF3F4F6),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: IconButton(
-                icon: const Icon(Icons.menu, color: Colors.white),
+                icon: Icon(Icons.menu, color: _textPrimary),
                 onPressed: () => Scaffold.of(ctx).openDrawer(),
               ),
             );
           }),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text('LOG RIWAYAT', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-              SizedBox(height: 4),
-              Text('Riwayat Aktivitas Sistem', style: TextStyle(color: Colors.white70, fontSize: 13)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('LOG RIWAYAT', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _textPrimary)),
+                const SizedBox(height: 4),
+                Text(selectedDate != null 
+                  ? 'Filter: ${_formatDate(selectedDate!)}'
+                  : '${filteredSummaries.length} hari tercatat', 
+                  style: TextStyle(color: _textSecondary, fontSize: 13)),
+              ],
+            ),
           ),
-          const Spacer(),
           Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF1A1A1A),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
+              ),
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF3B82F6).withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.calendar_today, color: Colors.white, size: 20),
+              onPressed: _showDatePicker,
+              tooltip: 'Filter Tanggal',
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: widget.isDarkMode ? const Color(0xFF1A1A1A) : const Color(0xFFF3F4F6),
               borderRadius: BorderRadius.circular(8),
             ),
             child: IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.white),
+              icon: Icon(Icons.refresh, color: _textPrimary),
               onPressed: _loadLogs,
             ),
           ),
@@ -307,45 +355,32 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
     );
   }
 
-  Widget _buildFilterTabs() {
-    return Container(
-      margin: const EdgeInsets.all(20),
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFF121212),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Row(
-        children: [
-          _filterTab('Harian'),
-          _filterTab('Mingguan'),
-          _filterTab('Bulanan'),
-        ],
-      ),
-    );
+  void _resetFilter() {
+    setState(() {
+      filterMode = 'all';
+      selectedDate = null;
+      selectedMonth = null;
+      selectedYear = null;
+      currentPage = 0;
+    });
   }
 
-  Widget _filterTab(String label) {
-    final isSelected = selectedFilter == label;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => selectedFilter = label),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF16A34A) : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(label, textAlign: TextAlign.center,
-            style: TextStyle(
-              color: isSelected ? Colors.white : Colors.white60,
-              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              fontSize: 13,
-            ),
-          ),
-        ),
+  Future<void> _showDatePicker() async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => FilterBottomSheet(
+        isDarkMode: widget.isDarkMode,
+        onFilterSelected: (mode, date, month, year) {
+          setState(() {
+            filterMode = mode;
+            selectedDate = date;
+            selectedMonth = month;
+            selectedYear = year;
+            currentPage = 0;
+          });
+        },
       ),
     );
   }
@@ -355,9 +390,44 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.history, size: 64, color: Colors.white.withOpacity(0.3)),
-          const SizedBox(height: 16),
-          Text('Belum ada log aktivitas', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 16)),
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFF3B82F6).withOpacity(0.1),
+                  const Color(0xFF2563EB).withOpacity(0.05),
+                ],
+              ),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.event_busy, size: 64, color: _textSecondary),
+          ),
+          const SizedBox(height: 24),
+          Text('Tidak Ada Data', 
+            style: TextStyle(
+              color: _textPrimary, 
+              fontSize: 20, 
+              fontWeight: FontWeight.w700
+            )),
+          const SizedBox(height: 8),
+          Text('Tidak ada log aktivitas untuk filter ini',
+            style: TextStyle(color: _textSecondary, fontSize: 14),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          if (filterMode != 'all')
+            ElevatedButton.icon(
+              onPressed: _resetFilter,
+              icon: const Icon(Icons.arrow_back, size: 18),
+              label: const Text('Kembali ke Semua Data'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF16A34A),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
         ],
       ),
     );
@@ -368,9 +438,9 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
       onRefresh: _loadLogs,
       color: const Color(0xFF16A34A),
       child: ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: filteredSummaries.length,
-        itemBuilder: (context, index) => _buildSummaryCard(filteredSummaries[index]),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        itemCount: paginatedSummaries.length,
+        itemBuilder: (context, index) => _buildSummaryCard(paginatedSummaries[index]),
       ),
     );
   }
@@ -382,12 +452,29 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFF121212),
+        gradient: isToday ? LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF16A34A).withOpacity(widget.isDarkMode ? 0.1 : 0.05),
+            _cardBg,
+          ],
+        ) : null,
+        color: isToday ? null : _cardBg,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isToday ? const Color(0xFF16A34A).withOpacity(0.3) : Colors.white10,
+          color: isToday ? const Color(0xFF16A34A).withOpacity(0.5) : _dividerColor,
           width: isToday ? 2 : 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: isToday 
+              ? const Color(0xFF16A34A).withOpacity(widget.isDarkMode ? 0.2 : 0.1)
+              : Colors.black.withOpacity(widget.isDarkMode ? 0 : 0.05),
+            blurRadius: isToday ? 20 : 10,
+            offset: Offset(0, isToday ? 8 : 4),
+          ),
+        ],
       ),
       child: Material(
         color: Colors.transparent,
@@ -404,10 +491,19 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF16A34A).withOpacity(0.15),
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF16A34A), Color(0xFF15803D)],
+                        ),
                         borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF16A34A).withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-                      child: const Icon(Icons.calendar_today, color: Color(0xFF16A34A), size: 20),
+                      child: const Icon(Icons.calendar_today, color: Colors.white, size: 20),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -415,10 +511,10 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(dateText,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _textPrimary)),
                           const SizedBox(height: 4),
                           Text('${summary.openCount} aktivitas',
-                            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13)),
+                            style: TextStyle(color: _textSecondary, fontSize: 13)),
                         ],
                       ),
                     ),
@@ -426,7 +522,7 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                const Divider(color: Colors.white10, height: 1),
+                Divider(color: _dividerColor, height: 1),
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -448,9 +544,9 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF0A0A0A),
+          color: widget.isDarkMode ? const Color(0xFF0A0A0A) : const Color(0xFFF3F4F6),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white10),
+          border: Border.all(color: _dividerColor),
         ),
         child: Row(
           children: [
@@ -460,7 +556,7 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10)),
+                  Text(label, style: TextStyle(color: _textSecondary, fontSize: 10)),
                   const SizedBox(height: 2),
                   Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 13)),
                 ],
@@ -468,6 +564,37 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPagination() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: _headerBg,
+        border: Border(top: BorderSide(color: _dividerColor)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            onPressed: currentPage > 0 ? () => setState(() => currentPage--) : null,
+            icon: const Icon(Icons.chevron_left),
+            color: _textPrimary,
+          ),
+          const SizedBox(width: 16),
+          Text(
+            'Page ${currentPage + 1} of $totalPages',
+            style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 16),
+          IconButton(
+            onPressed: currentPage < totalPages - 1 ? () => setState(() => currentPage++) : null,
+            icon: const Icon(Icons.chevron_right),
+            color: _textPrimary,
+          ),
+        ],
       ),
     );
   }
@@ -483,21 +610,22 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
         maxChildSize: 0.95,
         builder: (context, scrollController) {
           return Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF0D0D0D),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: _bgColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             ),
             child: Column(
               children: [
                 Container(
                   margin: const EdgeInsets.symmetric(vertical: 12),
                   width: 40, height: 4,
-                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                  decoration: BoxDecoration(color: _dividerColor, borderRadius: BorderRadius.circular(2)),
                 ),
                 Expanded(child: DetailView(
                   summary: summary,
                   scrollController: scrollController,
                   formatDate: _formatDate,
+                  isDarkMode: widget.isDarkMode,
                 )),
               ],
             ),
@@ -508,17 +636,25 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
   }
 }
 
+// DetailView dan data classes tetap sama seperti sebelumnya
 class DetailView extends StatelessWidget {
   final DailySummary summary;
   final ScrollController scrollController;
   final String Function(DateTime, {bool isToday}) formatDate;
+  final bool isDarkMode;
 
   const DetailView({
     super.key,
     required this.summary,
     required this.scrollController,
     required this.formatDate,
+    this.isDarkMode = true,
   });
+
+  Color get _cardBg => isDarkMode ? const Color(0xFF121212) : Colors.white;
+  Color get _textPrimary => isDarkMode ? Colors.white : const Color(0xFF1A1A1A);
+  Color get _textSecondary => isDarkMode ? Colors.white70 : const Color(0xFF6B7280);
+  Color get _dividerColor => isDarkMode ? Colors.white10 : const Color(0xFFE5E7EB);
 
   @override
   Widget build(BuildContext context) {
@@ -530,9 +666,9 @@ class DetailView extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       children: [
         Text(dateText,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white)),
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _textPrimary)),
         const SizedBox(height: 8),
-        Text('Rekap Aktivitas Harian', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 14)),
+        Text('Rekap Aktivitas Harian', style: TextStyle(color: _textSecondary, fontSize: 14)),
         const SizedBox(height: 24),
         
         Row(
@@ -544,8 +680,6 @@ class DetailView extends StatelessWidget {
         ),
         
         const SizedBox(height: 24),
-        _buildChartsSection(),
-        const SizedBox(height: 24),
         _buildEventsTimeline(),
       ],
     );
@@ -556,7 +690,7 @@ class DetailView extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: const Color(0xFF121212),
+          color: _cardBg,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: color.withOpacity(0.3)),
         ),
@@ -567,65 +701,10 @@ class DetailView extends StatelessWidget {
             const SizedBox(height: 12),
             Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: color)),
             const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12)),
+            Text(label, style: TextStyle(color: _textSecondary, fontSize: 12)),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildChartsSection() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF121212),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.bar_chart, color: Color(0xFF16A34A), size: 20),
-              SizedBox(width: 8),
-              Text('Statistik Harian', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
-            ],
-          ),
-          const SizedBox(height: 20),
-          _buildSimpleBarChart('Fill Level', summary.avgFillLevel, 100, const Color(0xFF3B82F6)),
-          const SizedBox(height: 16),
-          _buildSimpleBarChart('Gas Level', summary.avgGasLevel, 500, const Color(0xFFFB923C)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSimpleBarChart(String label, double value, double max, Color color) {
-    final percentage = (value / max).clamp(0.0, 1.0);
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 13, fontWeight: FontWeight.w600)),
-            Text(label.contains('Fill') ? '${value.toStringAsFixed(0)}%' : '${value.toStringAsFixed(0)} ppm',
-              style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w700)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Stack(
-          children: [
-            Container(height: 8, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(4))),
-            FractionallySizedBox(
-              widthFactor: percentage,
-              child: Container(height: 8, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4))),
-            ),
-          ],
-        ),
-      ],
     );
   }
 
@@ -633,28 +712,22 @@ class DetailView extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF121212),
+        color: _cardBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: _dividerColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
-              Icon(Icons.timeline, color: Color(0xFF16A34A), size: 20),
-              SizedBox(width: 8),
-              Text('Timeline Aktivitas', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+            children: [
+              const Icon(Icons.timeline, color: Color(0xFF16A34A), size: 20),
+              const SizedBox(width: 8),
+              Text('Timeline Aktivitas', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _textPrimary)),
             ],
           ),
           const SizedBox(height: 16),
-          ...summary.events.take(10).map((event) => _buildTimelineItem(event)),
-          if (summary.events.length > 10)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text('+ ${summary.events.length - 10} aktivitas lainnya',
-                style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12, fontStyle: FontStyle.italic)),
-            ),
+          ...summary.events.map((event) => _buildTimelineItem(event)),
         ],
       ),
     );
@@ -671,10 +744,10 @@ class DetailView extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(event.event, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(event.event, style: TextStyle(color: _textPrimary, fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
                 Text(DateFormat('HH:mm:ss').format(event.timestamp),
-                  style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11)),
+                  style: TextStyle(color: _textSecondary, fontSize: 11)),
               ],
             ),
           ),
@@ -711,4 +784,149 @@ class DailySummary {
     required this.maxGasLevel,
     required this.maxFillLevel,
   });
+}
+
+class FilterBottomSheet extends StatelessWidget {
+  final bool isDarkMode;
+  final void Function(
+    String mode,
+    DateTime? date,
+    int? month,
+    int? year,
+  ) onFilterSelected;
+
+  const FilterBottomSheet({
+    super.key,
+    this.isDarkMode = true,
+    required this.onFilterSelected,
+  });
+
+  Color get _bg => isDarkMode ? const Color(0xFF0D0D0D) : Colors.white;
+  Color get _card => isDarkMode ? const Color(0xFF121212) : const Color(0xFFF3F4F6);
+  Color get _text => isDarkMode ? Colors.white : Colors.black;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Filter Log',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _text),
+          ),
+          const SizedBox(height: 16),
+
+          _filterButton(
+            context,
+            icon: Icons.today,
+            label: 'Hari Ini',
+            onTap: () {
+              onFilterSelected('day', DateTime.now(), null, null);
+              Navigator.pop(context);
+            },
+          ),
+
+          _filterButton(
+            context,
+            icon: Icons.calendar_month,
+            label: 'Pilih Tanggal',
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: DateTime.now(),
+                firstDate: DateTime(2023),
+                lastDate: DateTime.now(),
+              );
+              if (picked != null) {
+                onFilterSelected('day', picked, null, null);
+              }
+              Navigator.pop(context);
+            },
+          ),
+
+          _filterButton(
+            context,
+            icon: Icons.calendar_view_month,
+            label: 'Bulan Ini',
+            onTap: () {
+              final now = DateTime.now();
+              onFilterSelected('month', null, now.month, now.year);
+              Navigator.pop(context);
+            },
+          ),
+
+          _filterButton(
+            context,
+            icon: Icons.event,
+            label: 'Tahun Ini',
+            onTap: () {
+              final now = DateTime.now();
+              onFilterSelected('year', null, null, now.year);
+              Navigator.pop(context);
+            },
+          ),
+
+          const SizedBox(height: 12),
+
+          TextButton(
+            onPressed: () {
+              onFilterSelected('all', null, null, null);
+              Navigator.pop(context);
+            },
+            child: const Text(
+              'Reset Filter',
+              style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filterButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: _card,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(icon, color: const Color(0xFF16A34A)),
+                const SizedBox(width: 12),
+                Text(label, style: TextStyle(color: _text, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
