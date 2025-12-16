@@ -86,12 +86,12 @@ class AboutScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 _modernMenuTile(context, Icons.dashboard_rounded, 'Dashboard', false, () {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
+                  Navigator.pop(context); // Close drawer
+                  Navigator.pop(context); // Go back to dashboard
                 }),
                 _modernMenuTile(context, Icons.history_rounded, 'Log Riwayat', false, () {
-                  Navigator.pop(context);
-                  // Navigate to log history
+                  Navigator.pop(context); // Close drawer
+                  // Don't pop again, just stay on this screen
                 }),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -228,7 +228,7 @@ class AboutScreen extends StatelessWidget {
       title: 'Deskripsi Aplikasi',
       icon: Icons.description_outlined,
       child: Text(
-        'Smart Trash Monitor adalah aplikasi monitoring real-time untuk tempat sampah pintar yang dilengkapi dengan sensor ultrasonik untuk mengukur tingkat penuhnya sampah dan sensor gas MQ-135 untuk mendeteksi bau tidak sedap. Aplikasi ini memungkinkan pengguna untuk memantau kondisi tempat sampah dari jarak jauh dan melakukan kontrol otomatis tutup sampah.',
+        'Smart Trash Monitor adalah aplikasi monitoring real-time untuk tempat sampah pintar yang dilengkapi dengan sensor ultrasonik untuk mengukur tingkat penuhnya sampah dan sensor gas MQ-135 untuk mendeteksi bau tidak sedap. Aplikasi ini memungkinkan pengguna untuk memantau kondisi tempat sampah dari jarak jauh.',
         style: TextStyle(color: _textSecondary, height: 1.6, fontSize: 14),
       ),
     );
@@ -243,8 +243,6 @@ class AboutScreen extends StatelessWidget {
           _buildFeatureItem(Icons.speed, 'Monitoring Real-time', 'Pantau kondisi sampah secara langsung'),
           _buildFeatureItem(Icons.air, 'Deteksi Gas', 'Sensor MQ-135 untuk deteksi bau'),
           _buildFeatureItem(Icons.height, 'Level Sampah', 'Sensor ultrasonik HC-SR04'),
-          _buildFeatureItem(Icons.control_camera, 'Kontrol Jarak Jauh', 'Buka/tutup sampah dari aplikasi'),
-          _buildFeatureItem(Icons.notifications_active, 'Notifikasi Cerdas', 'Peringatan otomatis saat penuh/bau'),
           _buildFeatureItem(Icons.history, 'Log Aktivitas', 'Riwayat lengkap semua aktivitas'),
           _buildFeatureItem(Icons.dark_mode, 'Dark/Light Theme', 'Tema dapat disesuaikan'),
           _buildFeatureItem(Icons.trending_up, 'Grafik Real-time', 'Visualisasi data sensor'),
@@ -315,14 +313,6 @@ class AboutScreen extends StatelessWidget {
             children: [
               Text('Device ID', style: TextStyle(color: _textSecondary)),
               Text('TRASH-001', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w700)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Location', style: TextStyle(color: _textSecondary)),
-              Text('Main Building', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w700)),
             ],
           ),
           const SizedBox(height: 12),
