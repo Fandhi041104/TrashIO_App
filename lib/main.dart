@@ -101,13 +101,11 @@ class TrashMonitorScreen extends StatefulWidget {
 class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
   final DatabaseReference _trashRef = FirebaseDatabase.instance.ref('trashbin');
   final DatabaseReference _logsRef = FirebaseDatabase.instance.ref('trashbin_logs');
-  final DatabaseReference _openCountRef = FirebaseDatabase.instance.ref('trashbin/open_count');
 
   double fillLevel = 0;
   double gasLevel = 0;
   bool servoOpen = false;
   bool prevServoOpen = false;
-  int openCount = 0;
   String status = 'Waiting for data...';
   bool isConnected = false;
   bool isDataReceived = false;
@@ -116,7 +114,6 @@ class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
   
   List<FlSpot> fillHistory = [];
   List<FlSpot> gasHistory = [];
-  DateTime? lastChartUpdate;
 
   StreamSubscription<DatabaseEvent>? _trashSub;
   StreamSubscription<DatabaseEvent>? _connSub;
@@ -158,139 +155,20 @@ class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
         lastUpdate = _formatLastUpdate(last);
         servoOpen = servo;
         _updateChartData();
-        
-        // Trigger warnings
-        _checkWarnings();
       });
 
-      if (!prevServoOpen && servoOpen) _incrementOpenCountAndLog();
+      if (!prevServoOpen && servoOpen) _logActivity();
       prevServoOpen = servoOpen;
     });
 
     _connSub = FirebaseDatabase.instance.ref('.info/connected').onValue.listen((event) {
       setState(() => isConnected = event.snapshot.value == true);
     });
-
-    _openCountRef.get().then((snap) {
-      if (snap.exists && snap.value != null) {
-        setState(() => openCount = int.tryParse(snap.value.toString()) ?? 0);
-      }
-    });
-  }
-
-  void _checkWarnings() {
-    // Warning for gas level
-    if (gasLevel >= 250 && gasLevel < 350) {
-      _showWarning(
-        'Peringatan Gas!',
-        'Tempat sampah bau terdeteksi. Segera cek/buang sampah!',
-        Icons.air,
-        const Color(0xFFFB923C),
-      );
-    } else if (gasLevel >= 350) {
-      _showWarning(
-        'Bahaya Gas!',
-        'Gas berbahaya terdeteksi! Segera buang sampah!',
-        Icons.warning,
-        const Color(0xFFDC2626),
-      );
-    }
-
-    // Warning for fill level
-    if (fillLevel >= 90) {
-      _showWarning(
-        'Sampah Penuh!',
-        'Tempat sampah sudah penuh (${fillLevel.toStringAsFixed(0)}%). Segera buang sampah!',
-        Icons.delete,
-        const Color(0xFFDC2626),
-      );
-    } else if (fillLevel >= 80) {
-      _showWarning(
-        'Hampir Penuh!',
-        'Tempat sampah hampir penuh (${fillLevel.toStringAsFixed(0)}%). Harap segera dikosongkan.',
-        Icons.delete_outline,
-        const Color(0xFFFB923C),
-      );
-    }
-  }
-
-  void _showWarning(String title, String message, IconData icon, Color color) {
-    if (!mounted) return;
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(icon, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                  const SizedBox(height: 4),
-                  Text(message, style: const TextStyle(fontSize: 12)),
-                ],
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: color,
-        duration: const Duration(seconds: 5),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-
-  Future<void> _controlServo(bool open) async {
-    if (isControlling || !_isReallyConnected) return;
-
-    setState(() => isControlling = true);
-
-    try {
-      await _trashRef.update({
-        'servo_open': open,
-        'last_update': DateTime.now().millisecondsSinceEpoch.toString(),
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(open ? 'Membuka tutup sampah...' : 'Menutup tutup sampah...'),
-            backgroundColor: const Color(0xFF16A34A),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: const Color(0xFFDC2626),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => isControlling = false);
-      }
-    }
   }
 
   void _updateChartData() {
-    final now = DateTime.now();
-    
-    // Update hanya setiap 1 menit
-    if (lastChartUpdate != null && now.difference(lastChartUpdate!).inSeconds < 60) {
-      return;
-    }
-    
-    lastChartUpdate = now;
-    
-    if (fillHistory.length >= 15) {
+    // Update setiap kali ada data baru (real-time)
+    if (fillHistory.length >= 30) {
       fillHistory.removeAt(0);
       gasHistory.removeAt(0);
     }
@@ -314,21 +192,11 @@ class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
     }
   }
 
-  Future<void> _incrementOpenCountAndLog() async {
+  Future<void> _logActivity() async {
     try {
-      await _openCountRef.runTransaction((currentData) {
-        final current = (currentData == null) ? 0 : int.tryParse(currentData.toString()) ?? 0;
-        return Transaction.success(current + 1);
-      });
-
-      final snap = await _openCountRef.get();
-      final newVal = snap.exists ? int.tryParse(snap.value.toString()) ?? openCount : openCount;
-      setState(() => openCount = newVal);
-
       await _logsRef.push().set({
         'timestamp': DateTime.now().toIso8601String(),
         'event': 'Lid opened (servo)',
-        'open_count': newVal,
       });
     } catch (e) {
       debugPrint('Error: $e');
@@ -399,9 +267,6 @@ class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
                       children: [
                         isWide ? _buildStatusCardsRow() : _buildStatusCardsGrid(),
                         const SizedBox(height: 16),
-                        _buildControlCard(),
-                        const SizedBox(height: 16),
-                        // Row untuk Trash Capacity + Charts (Desktop/Wide)
                         isWide ? Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -614,235 +479,6 @@ class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
     );
   }
 
-  Widget _buildControlCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: _cardBg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _dividerColor),
-        boxShadow: widget.isDarkMode ? [] : [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF16A34A), Color(0xFF15803D)],
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.settings_remote, color: Colors.white, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text('KONTROL TUTUP SAMPAH',
-                    style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w700, fontSize: 15)),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: servoOpen 
-                      ? [const Color(0xFFFB923C), const Color(0xFFF59E0B)]
-                      : [const Color(0xFF3B82F6), const Color(0xFF2563EB)],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: (servoOpen ? const Color(0xFFFB923C) : const Color(0xFF3B82F6)).withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      servoOpen ? Icons.lock_open : Icons.lock,
-                      color: Colors.white,
-                      size: 14,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      servoOpen ? 'TERBUKA' : 'TERTUTUP',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: (_isReallyConnected && !servoOpen && !isControlling)
-                        ? const LinearGradient(
-                            colors: [Color(0xFF16A34A), Color(0xFF15803D)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          )
-                        : null,
-                    color: (_isReallyConnected && !servoOpen && !isControlling)
-                        ? null
-                        : widget.isDarkMode ? const Color(0xFF1A1A1A) : const Color(0xFFE5E7EB),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: (_isReallyConnected && !servoOpen && !isControlling) ? [
-                      BoxShadow(
-                        color: const Color(0xFF16A34A).withOpacity(0.4),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ] : [],
-                  ),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: (_isReallyConnected && !servoOpen && !isControlling)
-                          ? () => _controlServo(true)
-                          : null,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              isControlling ? Icons.hourglass_empty : Icons.lock_open_rounded,
-                              color: (_isReallyConnected && !servoOpen && !isControlling)
-                                  ? Colors.white
-                                  : _textSecondary,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              isControlling ? 'Memproses...' : 'Buka Tutup',
-                              style: TextStyle(
-                                color: (_isReallyConnected && !servoOpen && !isControlling)
-                                    ? Colors.white
-                                    : _textSecondary,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: (_isReallyConnected && servoOpen && !isControlling)
-                        ? const LinearGradient(
-                            colors: [Color(0xFFDC2626), Color(0xFFB91C1C)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          )
-                        : null,
-                    color: (_isReallyConnected && servoOpen && !isControlling)
-                        ? null
-                        : widget.isDarkMode ? const Color(0xFF1A1A1A) : const Color(0xFFE5E7EB),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: (_isReallyConnected && servoOpen && !isControlling) ? [
-                      BoxShadow(
-                        color: const Color(0xFFDC2626).withOpacity(0.4),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ] : [],
-                  ),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: (_isReallyConnected && servoOpen && !isControlling)
-                          ? () => _controlServo(false)
-                          : null,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              isControlling ? Icons.hourglass_empty : Icons.lock_rounded,
-                              color: (_isReallyConnected && servoOpen && !isControlling)
-                                  ? Colors.white
-                                  : _textSecondary,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              isControlling ? 'Memproses...' : 'Tutup',
-                              style: TextStyle(
-                                color: (_isReallyConnected && servoOpen && !isControlling)
-                                    ? Colors.white
-                                    : _textSecondary,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (!_isReallyConnected)
-            Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFDC2626).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFDC2626).withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.warning_rounded, color: Color(0xFFDC2626), size: 18),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Kontrol tidak tersedia. Sistem offline.',
-                        style: TextStyle(
-                          color: widget.isDarkMode ? Colors.white : const Color(0xFFDC2626),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildStatusCardsGrid() {
     return Column(
       children: [
@@ -856,7 +492,7 @@ class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: _miniCard('LID STATUS', servoOpen ? 'OPEN' : 'CLOSED', 'COUNT: $openCount x',
+            Expanded(child: _miniCard('LID STATUS', servoOpen ? 'OPEN' : 'CLOSED', servoOpen ? 'OPENED' : 'CLOSED',
                 servoOpen ? const Color(0xFFFB923C) : const Color(0xFF3B82F6))),
             const SizedBox(width: 12),
             Expanded(child: _miniCard('CONNECTION', _isReallyConnected ? 'ONLINE' : 'OFFLINE',
@@ -875,7 +511,7 @@ class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
         const SizedBox(width: 12),
         Expanded(child: _miniCard('GAS LEVEL', '${gasLevel.toStringAsFixed(0)}', _gasStatusText(), _gasColor())),
         const SizedBox(width: 12),
-        Expanded(child: _miniCard('LID STATUS', servoOpen ? 'OPEN' : 'CLOSED', 'COUNT: $openCount x',
+        Expanded(child: _miniCard('LID STATUS', servoOpen ? 'OPEN' : 'CLOSED', servoOpen ? 'OPENED' : 'CLOSED',
             servoOpen ? const Color(0xFFFB923C) : const Color(0xFF3B82F6))),
         const SizedBox(width: 12),
         Expanded(child: _miniCard('CONNECTION', _isReallyConnected ? 'ONLINE' : 'OFFLINE',
@@ -1063,8 +699,6 @@ class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
           const SizedBox(height: 16),
           _compactInfoRow(Icons.schedule, 'Last Update', lastUpdate),
           Divider(color: _dividerColor, height: 24),
-          _compactInfoRow(Icons.location_on_outlined, 'Location', 'Main Building'),
-          Divider(color: _dividerColor, height: 24),
           _compactInfoRow(Icons.sensors, 'Device ID', 'TRASH-001'),
         ],
       ),
@@ -1092,7 +726,7 @@ class _TrashMonitorScreenState extends State<TrashMonitorScreen> {
                   titlesData: FlTitlesData(show: false),
                   borderData: FlBorderData(show: false),
                   minX: 0,
-                  maxX: 14,
+                  maxX: data.length > 1 ? data.length.toDouble() - 1 : 29,
                   minY: 0,
                   maxY: maxY,
                   lineBarsData: [

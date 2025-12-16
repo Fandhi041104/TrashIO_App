@@ -287,7 +287,7 @@ class AboutScreen extends StatelessWidget {
         ],
       ),
     );
-  }
+  } 
 
   Widget _buildVersion() {
     return Container(
