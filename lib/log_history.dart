@@ -22,7 +22,7 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
   int currentPage = 0;
   final int itemsPerPage = 10;
   DateTime? selectedDate;
-  String filterMode = 'all'; // 'all', 'day', 'month', 'year'
+  String filterMode = 'all';
   int? selectedMonth;
   int? selectedYear;
   
@@ -66,7 +66,6 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
               id: key,
               timestamp: DateTime.parse(logData['timestamp']),
               event: logData['event'] ?? 'Unknown event',
-              openCount: logData['open_count'] ?? 0,
             ));
           } catch (e) {
             debugPrint('Error parsing log: $e');
@@ -312,9 +311,7 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
               children: [
                 Text('LOG RIWAYAT', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _textPrimary)),
                 const SizedBox(height: 4),
-                Text(selectedDate != null 
-                  ? 'Filter: ${_formatDate(selectedDate!)}'
-                  : '${filteredSummaries.length} hari tercatat', 
+                Text(filterText, 
                   style: TextStyle(color: _textSecondary, fontSize: 13)),
               ],
             ),
@@ -335,7 +332,7 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
             ),
             child: IconButton(
               icon: const Icon(Icons.calendar_today, color: Colors.white, size: 20),
-              onPressed: _showDatePicker,
+              onPressed: _showFilterDialog,
               tooltip: 'Filter Tanggal',
             ),
           ),
@@ -365,22 +362,129 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
     });
   }
 
-  Future<void> _showDatePicker() async {
-    await showModalBottomSheet(
+  Future<void> _showFilterDialog() async {
+    await showDialog(
       context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => FilterBottomSheet(
-        isDarkMode: widget.isDarkMode,
-        onFilterSelected: (mode, date, month, year) {
-          setState(() {
-            filterMode = mode;
-            selectedDate = date;
-            selectedMonth = month;
-            selectedYear = year;
-            currentPage = 0;
-          });
-        },
+      builder: (context) => AlertDialog(
+        backgroundColor: _cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Filter Log', style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w800)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _filterButton(
+                icon: Icons.today,
+                label: 'Hari Ini',
+                onTap: () {
+                  setState(() {
+                    filterMode = 'day';
+                    selectedDate = DateTime.now();
+                    selectedMonth = null;
+                    selectedYear = null;
+                    currentPage = 0;
+                  });
+                  Navigator.pop(context);
+                },
+              ),
+              const SizedBox(height: 8),
+              _filterButton(
+                icon: Icons.calendar_month,
+                label: 'Pilih Tanggal',
+                onTap: () async {
+                  Navigator.pop(context);
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now(),
+                    firstDate: DateTime(2023),
+                    lastDate: DateTime.now(),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      filterMode = 'day';
+                      selectedDate = picked;
+                      selectedMonth = null;
+                      selectedYear = null;
+                      currentPage = 0;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              _filterButton(
+                icon: Icons.calendar_view_month,
+                label: 'Bulan Ini',
+                onTap: () {
+                  final now = DateTime.now();
+                  setState(() {
+                    filterMode = 'month';
+                    selectedDate = null;
+                    selectedMonth = now.month;
+                    selectedYear = now.year;
+                    currentPage = 0;
+                  });
+                  Navigator.pop(context);
+                },
+              ),
+              const SizedBox(height: 8),
+              _filterButton(
+                icon: Icons.event,
+                label: 'Tahun Ini',
+                onTap: () {
+                  final now = DateTime.now();
+                  setState(() {
+                    filterMode = 'year';
+                    selectedDate = null;
+                    selectedMonth = null;
+                    selectedYear = now.year;
+                    currentPage = 0;
+                  });
+                  Navigator.pop(context);
+                },
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () {
+                  _resetFilter();
+                  Navigator.pop(context);
+                },
+                child: const Text(
+                  'Reset Filter',
+                  style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _filterButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 4),
+      child: Material(
+        color: widget.isDarkMode ? const Color(0xFF0A0A0A) : const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(icon, color: const Color(0xFF16A34A)),
+                const SizedBox(width: 12),
+                Text(label, style: TextStyle(color: _textPrimary, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -636,7 +740,6 @@ class _LogHistoryScreenState extends State<LogHistoryScreen> {
   }
 }
 
-// DetailView dan data classes tetap sama seperti sebelumnya
 class DetailView extends StatelessWidget {
   final DailySummary summary;
   final ScrollController scrollController;
@@ -761,9 +864,8 @@ class LogEntry {
   final String id;
   final DateTime timestamp;
   final String event;
-  final int openCount;
 
-  LogEntry({required this.id, required this.timestamp, required this.event, required this.openCount});
+  LogEntry({required this.id, required this.timestamp, required this.event});
 }
 
 class DailySummary {
@@ -785,148 +887,3 @@ class DailySummary {
     required this.maxFillLevel,
   });
 }
-
-class FilterBottomSheet extends StatelessWidget {
-  final bool isDarkMode;
-  final void Function(
-    String mode,
-    DateTime? date,
-    int? month,
-    int? year,
-  ) onFilterSelected;
-
-  const FilterBottomSheet({
-    super.key,
-    this.isDarkMode = true,
-    required this.onFilterSelected,
-  });
-
-  Color get _bg => isDarkMode ? const Color(0xFF0D0D0D) : Colors.white;
-  Color get _card => isDarkMode ? const Color(0xFF121212) : const Color(0xFFF3F4F6);
-  Color get _text => isDarkMode ? Colors.white : Colors.black;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      decoration: BoxDecoration(
-        color: _bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'Filter Log',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _text),
-          ),
-          const SizedBox(height: 16),
-
-          _filterButton(
-            context,
-            icon: Icons.today,
-            label: 'Hari Ini',
-            onTap: () {
-              onFilterSelected('day', DateTime.now(), null, null);
-              Navigator.pop(context);
-            },
-          ),
-
-          _filterButton(
-            context,
-            icon: Icons.calendar_month,
-            label: 'Pilih Tanggal',
-            onTap: () async {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: DateTime.now(),
-                firstDate: DateTime(2023),
-                lastDate: DateTime.now(),
-              );
-              if (picked != null) {
-                onFilterSelected('day', picked, null, null);
-              }
-              Navigator.pop(context);
-            },
-          ),
-
-          _filterButton(
-            context,
-            icon: Icons.calendar_view_month,
-            label: 'Bulan Ini',
-            onTap: () {
-              final now = DateTime.now();
-              onFilterSelected('month', null, now.month, now.year);
-              Navigator.pop(context);
-            },
-          ),
-
-          _filterButton(
-            context,
-            icon: Icons.event,
-            label: 'Tahun Ini',
-            onTap: () {
-              final now = DateTime.now();
-              onFilterSelected('year', null, null, now.year);
-              Navigator.pop(context);
-            },
-          ),
-
-          const SizedBox(height: 12),
-
-          TextButton(
-            onPressed: () {
-              onFilterSelected('all', null, null, null);
-              Navigator.pop(context);
-            },
-            child: const Text(
-              'Reset Filter',
-              style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _filterButton(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: _card,
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Icon(icon, color: const Color(0xFF16A34A)),
-                const SizedBox(width: 12),
-                Text(label, style: TextStyle(color: _text, fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-} 
